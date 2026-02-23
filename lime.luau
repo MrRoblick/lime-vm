@@ -238,7 +238,7 @@ while true do
 	elseif op == 5 then
 		-- LOP_LOADK
 		local a = bit32.band(bit32.rshift(insn, 8), 0xFF)
-		local d = signedD(insn)
+		local d = bit32.rshift(insn, 16)
 		stack[a + 1] = Constants[d + 1]
 
 	elseif op == 6 then
@@ -283,7 +283,7 @@ while true do
 	elseif op == 12 then
 		-- LOP_GETIMPORT
 		local a = bit32.band(bit32.rshift(insn, 8), 0xFF)
-		local d = signedD(insn)
+		local d = bit32.rshift(insn, 16)
 		local kv = Constants[d + 1]
 		local aux = readInsn(pc)
 		pc += 1
@@ -414,8 +414,8 @@ while true do
 
 		if nparams == -1 then
 			local top = (stack :: any)._top
-			if top == nil then top = a end
-			actualParams = top - a
+			if top == nil then top = a + 1 end
+			actualParams = top - (a + 1)
 			if actualParams < 0 then actualParams = 0 end
 			callArgs = table.create(actualParams)
 			for i = 1, actualParams do
@@ -733,7 +733,7 @@ while true do
 			count = c
 		end
 		for i = 0, count - 1 do
-			t[index + i + 1] = stack[b + 1 + i]
+			t[index + i] = stack[b + 1 + i]
 		end
 
 	elseif op == 56 then
@@ -787,9 +787,9 @@ while true do
 		if results[1] == nil then
 			pc += 1 -- skip aux, exit loop
 		else
-			stack[a + 3] = results[1] -- update index (control variable)
+			stack[a + 3] = results[1] -- update control variable R(A+2)
 			for i = 1, numVars do
-				stack[a + 2 + i] = results[i]
+				stack[a + 3 + i] = results[i] -- loop vars at R(A+3), R(A+4), ...
 			end
 			pc += d -- jump back to loop header
 		end
@@ -798,12 +798,10 @@ while true do
 		-- LOP_FORGPREP_INEXT
 		local a = bit32.band(bit32.rshift(insn, 8), 0xFF)
 		local d = signedD(insn)
-		-- Set up ipairs iterator
-		local tbl = stack[a + 2]
-		local iter, st, ctrl = ipairs(tbl)
-		stack[a + 1] = iter
-		stack[a + 2] = st
-		stack[a + 3] = ctrl
+		-- R(A) must be a function (the iterator, e.g. ipairs result already in place)
+		if type(stack[a + 1]) ~= "function" then
+			error(`attempt to iterate over a {typeof(stack[a + 1])} value`)
+		end
 		pc += d
 
 	elseif op == 60 then
@@ -815,11 +813,10 @@ while true do
 		-- LOP_FORGPREP_NEXT
 		local a = bit32.band(bit32.rshift(insn, 8), 0xFF)
 		local d = signedD(insn)
-		local tbl = stack[a + 2]
-		local iter, st, ctrl = pairs(tbl)
-		stack[a + 1] = iter
-		stack[a + 2] = st
-		stack[a + 3] = ctrl
+		-- R(A) must be a function (the iterator, e.g. pairs result already in place)
+		if type(stack[a + 1]) ~= "function" then
+			error(`attempt to iterate over a {typeof(stack[a + 1])} value`)
+		end
 		pc += d
 
 	elseif op == 62 then
@@ -849,7 +846,7 @@ while true do
 	elseif op == 64 then
 		-- LOP_DUPCLOSURE
 		local a = bit32.band(bit32.rshift(insn, 8), 0xFF)
-		local d = signedD(insn)
+		local d = bit32.rshift(insn, 16)
 		local protoRef = Constants[d + 1]
 		local childProto: ProtoInfo
 
@@ -1260,7 +1257,7 @@ local luau_load = @[native, checked] function(Bytecode: buffer, Env: {[any]: any
 			NUps = NUps,
 			LineDefined = LineDefined,
 			DebugName = DebugName,
-		} :: ProtoInfo)
+		}) :: ProtoInfo
 
 		ProtoInfos[i] = protoInfo
 	end
